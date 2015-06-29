@@ -2,7 +2,7 @@
 # https://github.com/shenwei356/bio_scripts
 # Author     : Wei Shen
 # Contact    : shenwei356@gmail.com
-# LastUpdate : 2015-06-28
+# LastUpdate : 2015-06-29
 
 import argparse
 import sys
@@ -15,13 +15,17 @@ def parse_args():
 
     parser.add_argument('infile', nargs='?', type=argparse.FileType('r'),
                         default=sys.stdin,
-                        help='String file. one record per line, case ignored. default: STDIN. Preset count could be given following string, separated by "\\t".')
-
-    parser.add_argument('-m', '--max-mutation-sites', type=int, default=1, choices=[0, 1, 2],
+                        help=' '.join(['String file. One record per line, case ignored. Default: STDIN.',
+                                       'Preset counts could be given following string, separated by "\\t".']))
+    parser.add_argument('-m', '--max-mutation-sites', type=int, default=1,
                         help='Maximum mutation sites [1]')
     parser.add_argument('-k', '--kmer', type=int, default=9,
-                        help='K-mer length for clustering. 5 <= k < length of string [19].')
+                        help='K-mer length for clustering.  Recommending 3 <= k <= 0.5 * length of string [9].')
     args = parser.parse_args()
+
+    if args.max_mutation_sites < 0:
+        sys.stderr.write("value of option --max-mutation-sites should >= 0")
+        sys.exit(1)
 
     return args
 
@@ -36,6 +40,10 @@ def compute_kmers(s, k):
 
 
 def is_similar_key(s1, s2, max_mutation_sites=0):
+    if len(s1) != len(s2):
+        sys.stderr.write('unequal length of strings: "{}" and "{}"\n'.format(s1, s2))
+        sys.exit(1)
+
     d = 0
     for i in range(0, len(s1)):
         if s1[i:i + 1] != s2[i:i + 1]:
@@ -46,8 +54,6 @@ def is_similar_key(s1, s2, max_mutation_sites=0):
 
 
 def correct(fh, max_mutation_sites=0, k_len=7):
-    max_mutation_sites *= 2
-
     clusters = defaultdict(Counter)
     similar_keys = dict()  # a cache: key: similar_key.
     kmers_map = defaultdict(set)  # kmer: [key1, key2]
@@ -60,7 +66,7 @@ def correct(fh, max_mutation_sites=0, k_len=7):
         # tick
         cnt += 1
         if cnt % 10000 == 0:
-            sys.stderr.write('{}\r'.format(cnt))
+            sys.stderr.write('Processing records: {}\r'.format(cnt))
 
         # key and preset value
         items = line.rstrip().split('\t')
@@ -69,7 +75,7 @@ def correct(fh, max_mutation_sites=0, k_len=7):
         else:
             key, size = items[0].upper(), 1
 
-        if max_mutation_sites == 0:  # not need the complex computation below
+        if max_mutation_sites == 0:  # do not need the complex computation below
             clusters[key][key] += size
             continue
 
