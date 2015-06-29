@@ -21,6 +21,8 @@ def parse_args():
                         help='Maximum mutation sites [1]')
     parser.add_argument('-k', '--kmer', type=int, default=9,
                         help='K-mer length for clustering.  Recommending 3 <= k <= 0.5 * length of string [9].')
+    parser.add_argument("-s", "--sort", action="store_true",
+                        help='Sorting strings in result')
     args = parser.parse_args()
 
     if args.max_mutation_sites < 0:
@@ -142,7 +144,11 @@ if __name__ == '__main__':
 
     clusters = correct(args.infile, max_mutation_sites=args.max_mutation_sites, k_len=args.kmer)
 
-    for key, cluster in clusters.items():
+    keys = clusters.keys()
+    if args.sort:
+        keys = sorted(keys)
+    for key in keys:
+        cluster = clusters[key]
         # consensus, key with max proportion
         key = sorted(cluster.keys(), key=lambda k: cluster[k], reverse=True)[0]
 
