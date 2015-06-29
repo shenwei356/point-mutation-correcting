@@ -54,13 +54,8 @@ def is_similar_key(s1, s2, max_mutation_sites=0):
                 return False, d
     return True, d
 
-
-def correct(fh, max_mutation_sites=0, k_len=7):
+def counting(fh, debug=False):
     counts = Counter()
-    clusters = defaultdict(Counter)
-    similar_keys = dict()  # a cache: key: similar_key.
-    kmers_map = defaultdict(set)  # kmer: [key1, key2]
-
     cnt = 0
     for line in fh:
         if line.isspace() or line[0] == '#':
@@ -68,7 +63,7 @@ def correct(fh, max_mutation_sites=0, k_len=7):
 
         # tick
         cnt += 1
-        if cnt % 10000 == 0:
+        if debug and cnt % 10000 == 0:
             sys.stderr.write('Counting records: {}\r'.format(cnt))
 
         # key and preset value
@@ -80,11 +75,18 @@ def correct(fh, max_mutation_sites=0, k_len=7):
 
         counts[key] += size
 
+    return counts
+
+def correct_point_mutation(counts, max_mutation_sites=0, k_len=7, debug=False):
+    clusters = defaultdict(Counter)
+    similar_keys = dict()  # a cache: key: similar_key.
+    kmers_map = defaultdict(set)  # kmer: [key1, key2]
+
     cnt = 0
     for key in sorted(counts.keys(), key=lambda k: -counts[k]):
         # tick
         cnt += 1
-        if cnt % 10000 == 0:
+        if debug and cnt % 10000 == 0:
             sys.stderr.write('Checking records: {}\r'.format(cnt))
 
         if max_mutation_sites == 0:  # do not need the complex computation below
@@ -134,22 +136,20 @@ def correct(fh, max_mutation_sites=0, k_len=7):
         for kmer in kmers:
             kmers_map[kmer].add(key)
 
-    sys.stderr.write('Original unique strings: {}. After correcting: {}\n'.format(cnt, len(clusters)))
-
     return clusters
 
 
 if __name__ == '__main__':
     args = parse_args()
 
-    clusters = correct(args.infile, max_mutation_sites=args.max_mutation_sites, k_len=args.kmer)
+    counts = counting(args.infile, debug=True)
+    clusters = correct_point_mutation(counts, max_mutation_sites=args.max_mutation_sites, k_len=args.kmer, debug=True)
+
+    sys.stderr.write('Original unique strings: {}. After correcting: {}\n'.format(len(counts), len(clusters)))
 
     keys = clusters.keys()
     if args.sort:
         keys = sorted(keys)
     for key in keys:
         cluster = clusters[key]
-        # consensus, key with max proportion
-        key = sorted(cluster.keys(), key=lambda k: cluster[k], reverse=True)[0]
-
         sys.stdout.write('{}\t{}\t{}\n'.format(key, sum(cluster.values()), cluster))
