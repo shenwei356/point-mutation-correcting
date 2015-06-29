@@ -54,6 +54,7 @@ def is_similar_key(s1, s2, max_mutation_sites=0):
 
 
 def correct(fh, max_mutation_sites=0, k_len=7):
+    counts = Counter()
     clusters = defaultdict(Counter)
     similar_keys = dict()  # a cache: key: similar_key.
     kmers_map = defaultdict(set)  # kmer: [key1, key2]
@@ -66,7 +67,7 @@ def correct(fh, max_mutation_sites=0, k_len=7):
         # tick
         cnt += 1
         if cnt % 10000 == 0:
-            sys.stderr.write('Processing records: {}\r'.format(cnt))
+            sys.stderr.write('Counting records: {}\r'.format(cnt))
 
         # key and preset value
         items = line.rstrip().split('\t')
@@ -75,9 +76,20 @@ def correct(fh, max_mutation_sites=0, k_len=7):
         else:
             key, size = items[0].upper(), 1
 
+        counts[key] += size
+
+    cnt = 0
+    for key in sorted(counts.keys(), key=lambda k: -counts[k]):
+        # tick
+        cnt += 1
+        if cnt % 10000 == 0:
+            sys.stderr.write('Checking records: {}\r'.format(cnt))
+
         if max_mutation_sites == 0:  # do not need the complex computation below
             clusters[key][key] += size
             continue
+
+        size = counts[key]
 
         # all kmers
         kmers = compute_kmers(key, k_len)
@@ -119,6 +131,8 @@ def correct(fh, max_mutation_sites=0, k_len=7):
 
         for kmer in kmers:
             kmers_map[kmer].add(key)
+
+    sys.stderr.write('Original unique strings: {}. After correcting: {}\n'.format(cnt, len(clusters)))
 
     return clusters
 
