@@ -13,6 +13,7 @@ Usage
 -----
 
     usage: point_mutation_correcting.py [-h] [-m MAX_MUTATION_SITES] [-k KMER]
+                                        [-s] [-v]
                                         [infile]
     
     Point mutation correcting by k-mer clustering
@@ -26,8 +27,11 @@ Usage
       -h, --help            show this help message and exit
       -m MAX_MUTATION_SITES, --max-mutation-sites MAX_MUTATION_SITES
                             Maximum mutation sites [1]
-      -k KMER, --kmer KMER  K-mer length for clustering. Recommending 3 <= k <=
-                            0.5 * length of string [9].
+      -k KMER, --kmer KMER  K-mer length for clustering. Recommending 3 <= k <= L
+                            / (1+M), L for length of string and M for maximum
+                            mutation sites. [9]
+      -s, --sort            Sorting strings in result
+      -v, --verbose         Verbosely print information
     
     https://github.com/shenwei356/point-mutation-correcting
 

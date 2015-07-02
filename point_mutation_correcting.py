@@ -20,9 +20,12 @@ def parse_args():
     parser.add_argument('-m', '--max-mutation-sites', type=int, default=1,
                         help='Maximum mutation sites [1]')
     parser.add_argument('-k', '--kmer', type=int, default=9,
-                        help='K-mer length for clustering.  Recommending 3 <= k <= 0.5 * length of string [9].')
-    parser.add_argument("-s", "--sort", action="store_true",
+                        help=' '.join(['K-mer length for clustering.  Recommending 3 <= k <= L / (1+M),',
+                                       'L for length of string and M for maximum mutation sites. [9]']))
+    parser.add_argument('-s', '--sort', action='store_true',
                         help='Sorting strings in result')
+    parser.add_argument("-v", "--verbose", help='Verbosely print information',
+                        action="count", default=0)
     args = parser.parse_args()
 
     if args.max_mutation_sites < 0:
@@ -54,8 +57,10 @@ def is_similar_key(s1, s2, max_mutation_sites=0):
                 return False, d
     return True, d
 
-def counting(fh, debug=False):
-    counts = Counter()
+
+def counting(fh, k_len, verbose=0):
+    counts, kmer_counts = Counter(), Counter()
+    kmers_map = defaultdict(set)  # kmer: [key1, key2]
     cnt = 0
     for line in fh:
         if line.isspace() or line[0] == '#':
@@ -63,7 +68,7 @@ def counting(fh, debug=False):
 
         # tick
         cnt += 1
-        if debug and cnt % 10000 == 0:
+        if verbose > 0 and cnt % 10000 == 0:
             sys.stderr.write('Counting records: {}\r'.format(cnt))
 
         # key and preset value
@@ -75,33 +80,52 @@ def counting(fh, debug=False):
 
         counts[key] += size
 
-    return counts
+        for kmer in compute_kmers(key, k_len):
+            # kmer_counts[kmer] += 1
+            kmers_map[kmer].add(key)
 
-def correct_point_mutation(counts, max_mutation_sites=0, k_len=7, debug=False):
+    return counts, kmers_map, kmer_counts
+
+
+def correct_point_mutation(counts, kmers_map, kmer_counts, max_mutation_sites=0, k_len=7, verbose=0):
     clusters = defaultdict(Counter)
     similar_keys = dict()  # a cache: key: similar_key.
-    kmers_map = defaultdict(set)  # kmer: [key1, key2]
+    stats = Counter()
 
     cnt = 0
     for key in sorted(counts.keys(), key=lambda k: -counts[k]):
         # tick
         cnt += 1
-        if debug and cnt % 10000 == 0:
+        if verbose > 0 and cnt % 10000 == 0:
             sys.stderr.write('Checking records: {}\r'.format(cnt))
+
+        size = counts[key]
 
         if max_mutation_sites == 0:  # do not need the complex computation below
             clusters[key][key] += size
             continue
 
-        size = counts[key]
+        if size == 1:
+            stats['single'] += 1
 
-        # all kmers
         kmers = compute_kmers(key, k_len)
-
         if key in clusters or len(clusters) == 0:  # existed
+            if verbose > 1:
+                if len(clusters) == 0:
+                    sys.stderr.write('{}: first one\n'.format(key))
+                else:
+                    sys.stderr.write('{}: already in clusters\n'.format(key))
             clusters[key][key] += size
         elif key in similar_keys:  # yes, we have known that key is similar to similar_keys[key]
-            clusters[similar_keys[key]][key] += size
+            # find the original key
+            kk = key
+            while True:
+                kk = similar_keys[kk]
+                if kk not in similar_keys:
+                    break
+            clusters[kk][key] += size
+            if verbose > 1:
+                sys.stderr.write('{}: known to be similar to {}\n'.format(key, similar_keys[key]))
         else:
             candidates = dict()
             tested = set()
@@ -117,33 +141,55 @@ def correct_point_mutation(counts, max_mutation_sites=0, k_len=7, debug=False):
                     similar, d = is_similar_key(key, k, max_mutation_sites)
                     if similar:
                         candidates[k] = d
-                        break
 
             if len(candidates) == 0:  # no candidates
+                if verbose > 1:
+                    sys.stderr.write('{}: no candidates, create new cluster\n'.format(key))
                 clusters[key][key] += size
-            else:  # find the key with minimum d
-                k = sorted(candidates.keys(), key=lambda x: candidates[x], reverse=True)[0]
-                if k in clusters:
+            else:
+                cached = False
+                ks = sorted(candidates.keys(), key=lambda x: candidates[x])
+                for k in ks:
+                    if verbose > 1:
+                        sys.stderr.write('{}: candi: {}\n'.format(key, k))
+                    if k in clusters:
+                        clusters[k][key] += size
+                        similar_keys[key] = k
+                        cached = True
+                        if verbose > 1:
+                            sys.stderr.write('{}: candi: {} in cluster\n'.format(key, k))
+                        break
+                    elif k in similar_keys:
+                        # find the original key
+                        kk = k
+                        while True:
+                            kk = similar_keys[kk]
+                            if kk not in similar_keys:
+                                break
+                        clusters[kk][key] += size
+                        similar_keys[key] = k
+                        cached = True
+                        if verbose > 1:
+                            sys.stderr.write('{}: candi: {} has similar key {}\n'.format(key, k, similar_keys[k]))
+                        break
+                if not cached:
+                    k = ks[0]
                     clusters[k][key] += size
                     similar_keys[key] = k
-                elif k in similar_keys:  # Attention!!
-                    clusters[similar_keys[k]][key] += size
-                    similar_keys[key] = similar_keys[k]
-                else:
-                    clusters[k][key] += size
-                    similar_keys[key] = k
-
-        for kmer in kmers:
-            kmers_map[kmer].add(key)
-
+                    if verbose > 1:
+                        sys.stderr.write('{}: candi: {} new cluster\n'.format(key, k))
+                if verbose > 1:
+                    sys.stderr.write('\n')
+    sys.stderr.write('summary: {}\n'.format(stats))
     return clusters
 
 
 if __name__ == '__main__':
     args = parse_args()
 
-    counts = counting(args.infile, debug=True)
-    clusters = correct_point_mutation(counts, max_mutation_sites=args.max_mutation_sites, k_len=args.kmer, debug=True)
+    counts, kmers_map, kmer_counts = counting(args.infile, args.kmer, verbose=args.verbose)
+    clusters = correct_point_mutation(counts, kmers_map, kmer_counts, max_mutation_sites=args.max_mutation_sites,
+                                      k_len=args.kmer, verbose=args.verbose)
 
     sys.stderr.write('Original unique strings: {}. After correcting: {}\n'.format(len(counts), len(clusters)))
 
@@ -152,4 +198,5 @@ if __name__ == '__main__':
         keys = sorted(keys)
     for key in keys:
         cluster = clusters[key]
+        key = sorted(cluster.keys(), key=lambda k: -cluster[k])[0]
         sys.stdout.write('{}\t{}\t{}\n'.format(key, sum(cluster.values()), cluster))
